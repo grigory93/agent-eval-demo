@@ -310,17 +310,26 @@ if __name__ == "__main__":
     sql_retriever = SQLRetriever(sql_database)
 
     # Response Synthesis Prompt
-    response_synthesis_prompt_str = (
+    response_synthesis_prompt_template1 = (
+        "Given an input question, synthesize a response from the query results.\n"
+        "Query: {query_str}\n"
+        "SQL: {sql_query}\n"
+        "SQL Response: {context_str}\n"
+        "Response: "
+    )
+    response_synthesis_prompt1 = PromptTemplate(
+        response_synthesis_prompt_template1,
+    )
+    response_synthesis_prompt_template2 = (
         "Given an input question, synthesize a response from the query results. Only use the information from the SQL Response.\n"
         "Query: {query_str}\n"
         "SQL: {sql_query}\n"
         "SQL Response: {context_str}\n"
         "Response: "
     )
-    response_synthesis_prompt = PromptTemplate(
-        response_synthesis_prompt_str,
+    response_synthesis_prompt2 = PromptTemplate(
+        response_synthesis_prompt_template2,
     )
-
 
     text2sql_prompt = DEFAULT_TEXT_TO_SQL_PROMPT.partial_format(
         dialect=engine.dialect.name
@@ -328,10 +337,12 @@ if __name__ == "__main__":
     print(text2sql_prompt.template)
 
     # Create workflow with 30-second timeout
-    workflow1 = create_advanced_1_workflow(sql_database, obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=3000.0, verbose=False)
+    workflow1_1 = create_advanced_1_workflow(sql_database, obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt1, llm, timeout=3000.0, verbose=False)
+
+    workflow1_2 = create_advanced_1_workflow(sql_database, obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt2, llm, timeout=3000.0, verbose=False)
 
     vector_index_dict = index_all_tables(sql_database)
-    workflow2 = create_advanced_2_workflow(sql_database, vector_index_dict, obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=3000.0, verbose=False)
+    workflow2_1 = create_advanced_2_workflow(sql_database, vector_index_dict, obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt2, llm, timeout=3000.0, verbose=False)
 
     queries = [
         "What was the year that The Notorious B.I.G was signed to Bad Boy?",
@@ -343,7 +354,7 @@ if __name__ == "__main__":
     for query in queries:
         print("="*100)
         print(f"Running Agent with query: {query}")
-        response = asyncio.run(run_agent(workflow2, query))
+        response = asyncio.run(run_agent(workflow2_1, query))
         if response:
             print("="*100)
             print(f"Query: {query}")
