@@ -9,7 +9,6 @@ from llama_index.llms.openai import OpenAI
 from llama_index.core.llms import ChatMessage
 
 from llama_index.core.retrievers import SQLRetriever
-from typing import List
 
 from sqlalchemy import (
     create_engine,
@@ -30,15 +29,8 @@ from llama_index.core import SQLDatabase, VectorStoreIndex
 
 from llama_index.core.prompts.default_prompts import DEFAULT_TEXT_TO_SQL_PROMPT
 from llama_index.core import PromptTemplate
-from llama_index.core.llms import ChatResponse
 
 from llama_index.core.workflow import (
-    Workflow,
-    StartEvent,
-    StopEvent,
-    step,
-    Context,
-    Event,
     WorkflowTimeoutError,
 )
 from sqlalchemy import text
@@ -48,7 +40,8 @@ from llama_index.core.retrievers import SQLRetriever
 import os
 from pathlib import Path
 from typing import Dict
-from typing import List
+
+from text_to_sql_workflows import TextToSQLWorkflow1, TextToSQLWorkflow2
 
 
 
@@ -144,15 +137,6 @@ def get_table_infos(dfs: list[pd.DataFrame], tableinfo_dir: Path, llm: OpenAI):
     return table_infos
 
 
-
-
-
-
-
-
-
-
-
 # put data into sqlite db
 # Function to create a sanitized column name
 def sanitize_column_name(col_name):
@@ -199,164 +183,7 @@ def create_sql_database(dfs: list[pd.DataFrame], tableinfo_dir: Path, llm: OpenA
     return engine
 
 
-# Advanced Capability 1: Text-to-SQL with Query-Time Table Retrieval.
 
-def get_table_context_str(sql_database: SQLDatabase, table_schema_objs: List[SQLTableSchema]):
-    """Get table context string."""
-    context_strs = []
-    for table_schema_obj in table_schema_objs:
-        table_info = sql_database.get_single_table_info(
-            table_schema_obj.table_name
-        )
-        if table_schema_obj.context_str:
-            table_opt_context = " The table description is: "
-            table_opt_context += table_schema_obj.context_str
-            table_info += table_opt_context
-
-        context_strs.append(table_info)
-    return "\n\n".join(context_strs)
-
-
-# Text-to-SQL Prompt + Output Parser
-
-def parse_response_to_sql(chat_response: ChatResponse) -> str:
-    """Parse response to SQL."""
-    response = chat_response.message.content
-    sql_query_start = response.find("SQLQuery:")
-    if sql_query_start != -1:
-        response = response[sql_query_start:]
-        # TODO: move to removeprefix after Python 3.9+
-        if response.startswith("SQLQuery:"):
-            response = response[len("SQLQuery:") :]
-    sql_result_start = response.find("SQLResult:")
-    if sql_result_start != -1:
-        response = response[:sql_result_start]
-    return response.strip().strip("```").strip()
-
-
-
-# Define Workflow
-class TableRetrieveEvent(Event):
-    """Result of running table retrieval."""
-
-    table_context_str: str
-    query: str
-
-
-class TextToSQLEvent(Event):
-    """Text-to-SQL event."""
-
-    sql: str
-    query: str
-
-
-class TextToSQLWorkflow1(Workflow):
-    """Text-to-SQL Workflow that does query-time table retrieval."""
-
-    def __init__(
-        self,
-        sql_database: SQLDatabase,
-        obj_retriever,
-        text2sql_prompt,
-        sql_retriever,
-        response_synthesis_prompt,
-        llm,
-        *args,
-        **kwargs
-    ) -> None:
-        """Init params."""
-        super().__init__(*args, **kwargs)
-        self.sql_database = sql_database
-        self.obj_retriever = obj_retriever
-        self.text2sql_prompt = text2sql_prompt
-        self.sql_retriever = sql_retriever
-        self.response_synthesis_prompt = response_synthesis_prompt
-        self.llm = llm
-
-    @step
-    def retrieve_tables(
-        self, ctx: Context, ev: StartEvent
-    ) -> TableRetrieveEvent:
-        """Retrieve tables."""
-        table_schema_objs = self.obj_retriever.retrieve(ev.query)
-        table_context_str = get_table_context_str(self.sql_database, table_schema_objs)
-        return TableRetrieveEvent(
-            table_context_str=table_context_str, query=ev.query
-        )
-
-    @step
-    def generate_sql(
-        self, ctx: Context, ev: TableRetrieveEvent
-    ) -> TextToSQLEvent:
-        """Generate SQL statement."""
-        fmt_messages = self.text2sql_prompt.format_messages(
-            query_str=ev.query, schema=ev.table_context_str
-        )
-        chat_response = self.llm.chat(fmt_messages)
-        sql = parse_response_to_sql(chat_response)
-        return TextToSQLEvent(sql=sql, query=ev.query)
-
-    @step
-    def generate_response(self, ctx: Context, ev: TextToSQLEvent) -> StopEvent:
-        """Run SQL retrieval and generate response."""
-        retrieved_rows = self.sql_retriever.retrieve(ev.sql)
-        fmt_messages = self.response_synthesis_prompt.format_messages(
-            sql_query=ev.sql,
-            context_str=str(retrieved_rows),
-            query_str=ev.query,
-        )
-        chat_response = llm.chat(fmt_messages)
-        return StopEvent(result=chat_response)
-
-class TextToSQLWorkflow2(TextToSQLWorkflow1):
-    """Text-to-SQL Workflow that does query-time row AND table retrieval."""
-
-    def __init__(
-        self,
-        sql_database: SQLDatabase,
-        vector_index_dict: Dict[str, VectorStoreIndex],
-        obj_retriever,
-        text2sql_prompt,
-        sql_retriever,
-        response_synthesis_prompt,
-        llm,
-        *args,
-        **kwargs
-    ) -> None:
-        """Init params."""
-        super().__init__(
-            sql_database=sql_database, 
-            obj_retriever=obj_retriever, 
-            text2sql_prompt=text2sql_prompt, 
-            sql_retriever=sql_retriever, 
-            response_synthesis_prompt=response_synthesis_prompt, 
-            llm=llm, 
-            *args, 
-            **kwargs)
-        self.vector_index_dict = vector_index_dict
-
-    @step
-    def retrieve_tables(
-        self, ctx: Context, ev: StartEvent
-    ) -> TableRetrieveEvent:
-        """Retrieve tables."""
-        table_schema_objs = self.obj_retriever.retrieve(ev.query)
-        table_context_str = get_table_context_and_rows_str(
-            self.sql_database, self.vector_index_dict, ev.query, table_schema_objs, verbose=self._verbose
-        )
-        return TableRetrieveEvent(
-            table_context_str=table_context_str, query=ev.query
-        )
-    
-
-from llama_index.utils.workflow import draw_all_possible_flows
-
-draw_all_possible_flows(
-    TextToSQLWorkflow1, filename="workflows1_text_to_sql_table_retrieval.html"
-)
-draw_all_possible_flows(
-    TextToSQLWorkflow2, filename="workflows2_text_to_sql_table_retrieval.html"
-)
 
 
 # Create Basic Advanced Workflow
@@ -375,7 +202,6 @@ def create_advanced_1_workflow(sql_database: SQLDatabase, obj_retriever, text2sq
     return workflow
 
 # Advanced Capability 2: Text-to-SQL with Query-Time Row Retrieval (along with Table Retrieval)
-
 
 def index_all_tables(
     sql_database: SQLDatabase, table_index_dir: str = "data/table_index_dir"
@@ -424,43 +250,6 @@ def index_all_tables(
     return vector_index_dict
 
 
-
-
-def get_table_context_and_rows_str(
-    sql_database: SQLDatabase,
-    vector_index_dict: Dict[str, VectorStoreIndex],
-    query_str: str,
-    table_schema_objs: List[SQLTableSchema],
-    verbose: bool = False,
-):
-    """Get table context string."""
-    context_strs = []
-    for table_schema_obj in table_schema_objs:
-        # first append table info + additional context
-        table_info = sql_database.get_single_table_info(
-            table_schema_obj.table_name
-        )
-        if table_schema_obj.context_str:
-            table_opt_context = " The table description is: "
-            table_opt_context += table_schema_obj.context_str
-            table_info += table_opt_context
-
-        # also lookup vector index to return relevant table rows
-        vector_retriever = vector_index_dict[
-            table_schema_obj.table_name
-        ].as_retriever(similarity_top_k=2)
-        relevant_nodes = vector_retriever.retrieve(query_str)
-        if len(relevant_nodes) > 0:
-            table_row_context = "\nHere are some relevant example rows (values in the same order as columns above)\n"
-            for node in relevant_nodes:
-                table_row_context += str(node.get_content()) + "\n"
-            table_info += table_row_context
-
-        if verbose:
-            print(f"> Table Info: {table_info}")
-
-        context_strs.append(table_info)
-    return "\n\n".join(context_strs)
 
 def create_advanced_2_workflow(sql_database: SQLDatabase, vector_index_dict: Dict[str, VectorStoreIndex], obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=None, verbose=False):
     workflow = TextToSQLWorkflow2(
@@ -533,9 +322,6 @@ if __name__ == "__main__":
     )
 
 
-    draw_all_possible_flows(
-        TextToSQLWorkflow1, filename="text_to_sql_table_retrieval.html"
-    )
     text2sql_prompt = DEFAULT_TEXT_TO_SQL_PROMPT.partial_format(
         dialect=engine.dialect.name
     )
@@ -557,7 +343,7 @@ if __name__ == "__main__":
     for query in queries:
         print("="*100)
         print(f"Running Agent with query: {query}")
-        response = asyncio.run(run_agent(workflow1, query))
+        response = asyncio.run(run_agent(workflow2, query))
         if response:
             print("="*100)
             print(f"Query: {query}")
