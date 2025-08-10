@@ -41,6 +41,15 @@ from llama_index.core.workflow import (
     Event,
     WorkflowTimeoutError,
 )
+from sqlalchemy import text
+from llama_index.core.schema import TextNode
+from llama_index.core import StorageContext, VectorStoreIndex, load_index_from_storage
+from llama_index.core.retrievers import SQLRetriever
+import os
+from pathlib import Path
+from typing import Dict
+from typing import List
+
 
 
 load_dotenv()
@@ -192,7 +201,7 @@ def create_sql_database(dfs: list[pd.DataFrame], tableinfo_dir: Path, llm: OpenA
 
 # Advanced Capability 1: Text-to-SQL with Query-Time Table Retrieval.
 
-def get_table_context_str(table_schema_objs: List[SQLTableSchema]):
+def get_table_context_str(sql_database: SQLDatabase, table_schema_objs: List[SQLTableSchema]):
     """Get table context string."""
     context_strs = []
     for table_schema_obj in table_schema_objs:
@@ -246,6 +255,7 @@ class TextToSQLWorkflow1(Workflow):
 
     def __init__(
         self,
+        sql_database: SQLDatabase,
         obj_retriever,
         text2sql_prompt,
         sql_retriever,
@@ -256,6 +266,7 @@ class TextToSQLWorkflow1(Workflow):
     ) -> None:
         """Init params."""
         super().__init__(*args, **kwargs)
+        self.sql_database = sql_database
         self.obj_retriever = obj_retriever
         self.text2sql_prompt = text2sql_prompt
         self.sql_retriever = sql_retriever
@@ -268,7 +279,7 @@ class TextToSQLWorkflow1(Workflow):
     ) -> TableRetrieveEvent:
         """Retrieve tables."""
         table_schema_objs = self.obj_retriever.retrieve(ev.query)
-        table_context_str = get_table_context_str(table_schema_objs)
+        table_context_str = get_table_context_str(self.sql_database, table_schema_objs)
         return TableRetrieveEvent(
             table_context_str=table_context_str, query=ev.query
         )
@@ -297,29 +308,173 @@ class TextToSQLWorkflow1(Workflow):
         chat_response = llm.chat(fmt_messages)
         return StopEvent(result=chat_response)
 
+class TextToSQLWorkflow2(TextToSQLWorkflow1):
+    """Text-to-SQL Workflow that does query-time row AND table retrieval."""
+
+    def __init__(
+        self,
+        sql_database: SQLDatabase,
+        vector_index_dict: Dict[str, VectorStoreIndex],
+        obj_retriever,
+        text2sql_prompt,
+        sql_retriever,
+        response_synthesis_prompt,
+        llm,
+        *args,
+        **kwargs
+    ) -> None:
+        """Init params."""
+        super().__init__(
+            sql_database=sql_database, 
+            obj_retriever=obj_retriever, 
+            text2sql_prompt=text2sql_prompt, 
+            sql_retriever=sql_retriever, 
+            response_synthesis_prompt=response_synthesis_prompt, 
+            llm=llm, 
+            *args, 
+            **kwargs)
+        self.vector_index_dict = vector_index_dict
+
+    @step
+    def retrieve_tables(
+        self, ctx: Context, ev: StartEvent
+    ) -> TableRetrieveEvent:
+        """Retrieve tables."""
+        table_schema_objs = self.obj_retriever.retrieve(ev.query)
+        table_context_str = get_table_context_and_rows_str(
+            self.sql_database, self.vector_index_dict, ev.query, table_schema_objs, verbose=self._verbose
+        )
+        return TableRetrieveEvent(
+            table_context_str=table_context_str, query=ev.query
+        )
+    
 
 from llama_index.utils.workflow import draw_all_possible_flows
 
 draw_all_possible_flows(
-    TextToSQLWorkflow1, filename="text_to_sql_table_retrieval.html"
+    TextToSQLWorkflow1, filename="workflows1_text_to_sql_table_retrieval.html"
+)
+draw_all_possible_flows(
+    TextToSQLWorkflow2, filename="workflows2_text_to_sql_table_retrieval.html"
 )
 
 
 # Create Basic Advanced Workflow
-def create_advanced_1_workflow(obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=None):
+def create_advanced_1_workflow(sql_database: SQLDatabase, obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=None, verbose=False):
     workflow = TextToSQLWorkflow1(
+        sql_database=sql_database,
         obj_retriever=obj_retriever,
         text2sql_prompt=text2sql_prompt,
         sql_retriever=sql_retriever,
         response_synthesis_prompt=response_synthesis_prompt,
         llm=llm,
-        verbose=True,
+        verbose=verbose,
         timeout=timeout,
     )
 
     return workflow
 
+# Advanced Capability 2: Text-to-SQL with Query-Time Row Retrieval (along with Table Retrieval)
 
+
+def index_all_tables(
+    sql_database: SQLDatabase, table_index_dir: str = "data/table_index_dir"
+) -> Dict[str, VectorStoreIndex]:
+    """Index all tables."""
+    if not Path(table_index_dir).exists():
+        os.makedirs(table_index_dir)
+
+    table_index_exceptions = ["french_airports_usage_summary", "norwegian_club_performance_statistics","filmography_of_diane","kodachrome_film_types_and_dates","missing_persons_case_summary","bbc_radio_service_costs_comparison","binary_encoding_probabilities",]
+    vector_index_dict = {}
+    engine = sql_database.engine
+    for table_name in sql_database.get_usable_table_names():
+        if table_name in table_index_exceptions:
+            print(f"Skipping table: {table_name}")
+            continue
+        print(f"Indexing rows in table: {table_name}")
+        if not os.path.exists(f"{table_index_dir}/{table_name}"):
+            # get all rows from table
+            with engine.connect() as conn:
+                cursor = conn.execute(text(f'SELECT * FROM "{table_name}"'))
+                result = cursor.fetchall()
+                row_tups = []
+                for row in result:
+                    row_tups.append(tuple(row))
+
+            # index each row, put into vector store index
+            nodes = [TextNode(text=str(t)) for t in row_tups]
+
+            # put into vector store index (use OpenAIEmbeddings by default)
+            index = VectorStoreIndex(nodes)
+
+            # save index
+            index.set_index_id("vector_index")
+            index.storage_context.persist(f"{table_index_dir}/{table_name}")
+        else:
+            # rebuild storage context
+            storage_context = StorageContext.from_defaults(
+                persist_dir=f"{table_index_dir}/{table_name}"
+            )
+            # load index
+            index = load_index_from_storage(
+                storage_context, index_id="vector_index"
+            )
+        vector_index_dict[table_name] = index
+
+    return vector_index_dict
+
+
+
+
+def get_table_context_and_rows_str(
+    sql_database: SQLDatabase,
+    vector_index_dict: Dict[str, VectorStoreIndex],
+    query_str: str,
+    table_schema_objs: List[SQLTableSchema],
+    verbose: bool = False,
+):
+    """Get table context string."""
+    context_strs = []
+    for table_schema_obj in table_schema_objs:
+        # first append table info + additional context
+        table_info = sql_database.get_single_table_info(
+            table_schema_obj.table_name
+        )
+        if table_schema_obj.context_str:
+            table_opt_context = " The table description is: "
+            table_opt_context += table_schema_obj.context_str
+            table_info += table_opt_context
+
+        # also lookup vector index to return relevant table rows
+        vector_retriever = vector_index_dict[
+            table_schema_obj.table_name
+        ].as_retriever(similarity_top_k=2)
+        relevant_nodes = vector_retriever.retrieve(query_str)
+        if len(relevant_nodes) > 0:
+            table_row_context = "\nHere are some relevant example rows (values in the same order as columns above)\n"
+            for node in relevant_nodes:
+                table_row_context += str(node.get_content()) + "\n"
+            table_info += table_row_context
+
+        if verbose:
+            print(f"> Table Info: {table_info}")
+
+        context_strs.append(table_info)
+    return "\n\n".join(context_strs)
+
+def create_advanced_2_workflow(sql_database: SQLDatabase, vector_index_dict: Dict[str, VectorStoreIndex], obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=None, verbose=False):
+    workflow = TextToSQLWorkflow2(
+        sql_database=sql_database,
+        vector_index_dict=vector_index_dict,
+        obj_retriever=obj_retriever,
+        text2sql_prompt=text2sql_prompt,
+        sql_retriever=sql_retriever,
+        response_synthesis_prompt=response_synthesis_prompt,
+        llm=llm,
+        timeout=timeout,
+        verbose=verbose,
+    )
+    return workflow
 # Run
 async def run_agent(agent: TextToSQLWorkflow1, message: str):
     try:
@@ -387,8 +542,10 @@ if __name__ == "__main__":
     print(text2sql_prompt.template)
 
     # Create workflow with 30-second timeout
-    workflow = create_advanced_1_workflow(obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=3000.0)
+    workflow1 = create_advanced_1_workflow(sql_database, obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=3000.0, verbose=False)
 
+    vector_index_dict = index_all_tables(sql_database)
+    workflow2 = create_advanced_2_workflow(sql_database, vector_index_dict, obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=3000.0, verbose=False)
 
     queries = [
         "What was the year that The Notorious B.I.G was signed to Bad Boy?",
@@ -400,7 +557,7 @@ if __name__ == "__main__":
     for query in queries:
         print("="*100)
         print(f"Running Agent with query: {query}")
-        response = asyncio.run(run_agent(workflow, query))
+        response = asyncio.run(run_agent(workflow1, query))
         if response:
             print("="*100)
             print(f"Query: {query}")
