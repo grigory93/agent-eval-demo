@@ -39,6 +39,7 @@ from llama_index.core.workflow import (
     step,
     Context,
     Event,
+    WorkflowTimeoutError,
 )
 
 
@@ -189,6 +190,7 @@ def create_sql_database(dfs: list[pd.DataFrame], tableinfo_dir: Path, llm: OpenA
     return engine
 
 
+# Advanced Capability 1: Text-to-SQL with Query-Time Table Retrieval.
 
 def get_table_context_str(table_schema_objs: List[SQLTableSchema]):
     """Get table context string."""
@@ -303,8 +305,8 @@ draw_all_possible_flows(
 )
 
 
-# Create Basic Workflow
-def create_basic_workflow(obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm):
+# Create Basic Advanced Workflow
+def create_advanced_1_workflow(obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=None):
     workflow = TextToSQLWorkflow1(
         obj_retriever=obj_retriever,
         text2sql_prompt=text2sql_prompt,
@@ -312,6 +314,7 @@ def create_basic_workflow(obj_retriever, text2sql_prompt, sql_retriever, respons
         response_synthesis_prompt=response_synthesis_prompt,
         llm=llm,
         verbose=True,
+        timeout=timeout,
     )
 
     return workflow
@@ -319,11 +322,14 @@ def create_basic_workflow(obj_retriever, text2sql_prompt, sql_retriever, respons
 
 # Run
 async def run_agent(agent: TextToSQLWorkflow1, message: str):
-    response = await agent.run(query=message)
-    print("="*100)
-    print("Response:")
-    print(response)
-    print("="*100)
+    try:
+        response = await agent.run(query=message)
+        return response
+    except WorkflowTimeoutError:
+        print("="*100)
+        print("Workflow execution timed out!")
+        print("="*100)
+        return None
 
 if __name__ == "__main__":
     # Extract Table Name and Summary from each Table
@@ -361,7 +367,7 @@ if __name__ == "__main__":
 
     # Response Synthesis Prompt
     response_synthesis_prompt_str = (
-        "Given an input question, synthesize a response from the query results.\n"
+        "Given an input question, synthesize a response from the query results. Only use the information from the SQL Response.\n"
         "Query: {query_str}\n"
         "SQL: {sql_query}\n"
         "SQL Response: {context_str}\n"
@@ -380,16 +386,26 @@ if __name__ == "__main__":
     )
     print(text2sql_prompt.template)
 
-    workflow = create_basic_workflow(obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm)
+    # Create workflow with 30-second timeout
+    workflow = create_advanced_1_workflow(obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=3000.0)
 
-    print("="*100)
-    query = "What was the year that The Notorious B.I.G was signed to Bad Boy?"
-    print(f"Running Agent with query: {query}")
-    print("="*100)
-    asyncio.run(run_agent(workflow, query))
 
-    print("="*100)
-    query = "What was the year that The Notorious BIG was signed to Bad Boy?"
-    print(f"Running Agent with query: {query}")
-    print("="*100)
-    asyncio.run(run_agent(workflow, query))
+    queries = [
+        "What was the year that The Notorious B.I.G was signed to Bad Boy?",
+        "What was the year that The Notorious BIG was signed to Bad Boy?",
+        "Who won best director in the 1972 academy awards",
+        "What was the term of Pasquale Preziosa?",
+    ]
+
+    for query in queries:
+        print("="*100)
+        print(f"Running Agent with query: {query}")
+        response = asyncio.run(run_agent(workflow, query))
+        if response:
+            print("="*100)
+            print(f"Query: {query}")
+            print(f"Response: {response}")
+        else:
+            print("Response: None")
+        print("="*100)
+
