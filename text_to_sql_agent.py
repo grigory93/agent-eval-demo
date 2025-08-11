@@ -41,7 +41,9 @@ import os
 from pathlib import Path
 from typing import Dict
 
-from text_to_sql_workflows import TextToSQLWorkflow1, TextToSQLWorkflow2
+from jllm_eval import run_jllm_eval 
+from ragchecker_eval import run_ragchecker_eval
+from text_to_sql_workflows import TextToSQLWorkflow1, create_advanced_1_workflow, create_advanced_2_workflow
 
 
 
@@ -186,23 +188,8 @@ def create_sql_database(dfs: list[pd.DataFrame], tableinfo_dir: Path, llm: OpenA
 
 
 
-# Create Basic Advanced Workflow
-def create_advanced_1_workflow(sql_database: SQLDatabase, obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=None, verbose=False):
-    workflow = TextToSQLWorkflow1(
-        sql_database=sql_database,
-        obj_retriever=obj_retriever,
-        text2sql_prompt=text2sql_prompt,
-        sql_retriever=sql_retriever,
-        response_synthesis_prompt=response_synthesis_prompt,
-        llm=llm,
-        verbose=verbose,
-        timeout=timeout,
-    )
-
-    return workflow
 
 # Advanced Capability 2: Text-to-SQL with Query-Time Row Retrieval (along with Table Retrieval)
-
 def index_all_tables(
     sql_database: SQLDatabase, table_index_dir: str = "data/table_index_dir"
 ) -> Dict[str, VectorStoreIndex]:
@@ -251,19 +238,6 @@ def index_all_tables(
 
 
 
-def create_advanced_2_workflow(sql_database: SQLDatabase, vector_index_dict: Dict[str, VectorStoreIndex], obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=None, verbose=False):
-    workflow = TextToSQLWorkflow2(
-        sql_database=sql_database,
-        vector_index_dict=vector_index_dict,
-        obj_retriever=obj_retriever,
-        text2sql_prompt=text2sql_prompt,
-        sql_retriever=sql_retriever,
-        response_synthesis_prompt=response_synthesis_prompt,
-        llm=llm,
-        timeout=timeout,
-        verbose=verbose,
-    )
-    return workflow
 # Run
 async def run_agent(agent: TextToSQLWorkflow1, message: str):
     try:
@@ -274,6 +248,120 @@ async def run_agent(agent: TextToSQLWorkflow1, message: str):
         print("Workflow execution timed out!")
         print("="*100)
         return None
+
+
+def preprocess_response(response):
+    
+    if "query did not return any results" in response.lower():
+        # INSERT_YOUR_CODE
+        # Remove the last sentence from the string
+        import re
+        # Split into sentences using regex, keep punctuation
+        sentences = re.split(r'(?<=[.!?])\s+', response)
+        if len(sentences) > 1:
+            return ' '.join(sentences[:-1])
+        else:
+            return response
+    else:
+        return response
+
+GT_ANSWER_LIST = {
+    "B.I.G": "The Notorious B.I.G was signed to Bad Boy Records in 1993.",
+    "BIG": "The Notorious BIG was signed to Bad Boy Records in 1993.",
+    "best director": "William Friedkin won the Best Director award at the 1972 Academy Awards.",
+    "Preziosa": "Pasquale Preziosa has been serving since 25 February 2013 and is currently in office as incumbent.",
+}
+
+def get_gt_answer(query):
+    for key, value in GT_ANSWER_LIST.items():
+        if key.lower() in query.lower():
+            return value
+    else:
+        raise ValueError(f"No GT answer found for query: {query}")
+
+def run_workflow_evaluation(queries, workflow, output_file="workflow_results.json", save_to_file=True):
+    """
+    Run all queries through a workflow and assemble results into JSON format.
+    
+    Args:
+        queries: List of query strings to run
+        workflow: The TextToSQLWorkflow instance to use
+        output_file: Path to save the JSON results
+    
+    Returns:
+        Dict containing the assembled results
+    """
+    results = []
+    responses = []
+    retrieved_contexts = []
+    
+    for query_id, query in enumerate(queries):
+        print(f"Processing query {query_id}: {query}")
+        
+        try:
+            # Run the workflow
+            result = asyncio.run(run_agent(workflow, query))
+            
+            if result:
+                response = result.get("response")
+                context = result.get("context", [])
+                
+                # Build retrieved_context array
+                retrieved_context = []
+                for doc_id, ctx in enumerate(context):
+                    retrieved_context.append({
+                        "doc_id": str(doc_id),
+                        "text": ctx
+                    })
+                
+                # Build the query result object
+                query_result = {
+                    "query_id": str(query_id),
+                    "query": query,
+                    "gt_answer": get_gt_answer(query),  # Leave empty as requested
+                    "response": response.message.content if response else "",
+                    "retrieved_context": retrieved_context
+                }
+            else:
+                # Handle timeout or error case
+                query_result = {
+                    "query_id": str(query_id),
+                    "query": query,
+                    "gt_answer": "",
+                    "response": "",
+                    "retrieved_context": []
+                }
+                response = None
+                
+            results.append(query_result)
+            responses.append(response)
+            retrieved_contexts.append(retrieved_context)
+        except Exception as e:
+            print(f"Error processing query {query_id}: {str(e)}")
+            # Add error case to results
+            query_result = {
+                "query_id": str(query_id),
+                "query": query,
+                "gt_answer": "",
+                "response": f"Error: {str(e)}",
+                "retrieved_context": []
+            }
+            results.append(query_result)
+            responses.append(None)
+            retrieved_contexts.append(None)
+    # Assemble final result
+    final_result = {
+        "results": results
+    }
+    
+    # Save to JSON file
+    if save_to_file:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(final_result, f, indent=2, ensure_ascii=False)
+        print(f"Results saved to {output_file}")
+
+    return final_result, responses, retrieved_contexts
+
 
 if __name__ == "__main__":
     # Extract Table Name and Summary from each Table
@@ -351,15 +439,43 @@ if __name__ == "__main__":
         "What was the term of Pasquale Preziosa?",
     ]
 
-    for query in queries:
-        print("="*100)
-        print(f"Running Agent with query: {query}")
-        response = asyncio.run(run_agent(workflow2_1, query))
-        if response:
-            print("="*100)
-            print(f"Query: {query}")
-            print(f"Response: {response}")
-        else:
-            print("Response: None")
-        print("="*100)
+    
+    # Option 1: Use the evaluation function to run all queries and save to JSON
+    print("Running workflow evaluation...")
+    eval_file_name = "workflow1_1_results.json"
+    workflow = workflow1_1
+    results, responses, retrieved_contexts = run_workflow_evaluation(queries, workflow, eval_file_name, save_to_file=False)
+
+    # rag_results, eval_file = run_ragchecker_eval(eval_file_name)
+    # print(rag_results.metrics)
+    jllm_results = run_jllm_eval(queries, responses)
+    for eval_result in jllm_results:
+        print(eval_result.query)
+        print(eval_result.response)
+        print(eval_result.eval_result)
+        print(eval_result.phrase)
+        print("-"*100)
+
+    
+    # Option 2: Or if you want to run manually and still see individual outputs:
+    # for query in queries:
+    #     print("="*100)
+    #     print(f"Running {workflow.__class__.__name__} with query: {query}")
+    #     result = asyncio.run(run_agent(workflow, query))
+    #     response = result.get("response")
+    #     context = result.get("context")
+    #     if response:
+    #         print("="*100)
+    #         print(f"Query: {query}")
+    #         print(f"Response: {response.message.content}")
+    #         print(f"Context: {context}")
+    #     else:
+    #         print("Response: None")
+    #     print("="*100)
+    
+    # You can also run evaluations for different workflows:
+    # results_1_2 = run_workflow_evaluation(workflow1_2, queries, "workflow1_2_results.json")
+    # results_2_1 = run_workflow_evaluation(workflow2_1, queries, "workflow2_1_results.json")
+
+    
 

@@ -384,3 +384,4 @@ temp/
 *.zip
 WikiTableQuestions/
 data/
+eval-data/

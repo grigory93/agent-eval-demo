@@ -151,7 +151,11 @@ class TextToSQLWorkflow1(Workflow):
             query_str=ev.query,
         )
         chat_response = self.llm.chat(fmt_messages)
-        return StopEvent(result=chat_response)
+        result = {
+            "response": chat_response,
+            "context": [f'SQL Query: {row.metadata.get("sql_query")},\n Query Result: {row.metadata.get("result")},\n Column key: {row.metadata.get("col_keys")}' for row in retrieved_rows]
+        }
+        return StopEvent(result=result)
 
 
 class TextToSQLWorkflow2(TextToSQLWorkflow1):
@@ -193,6 +197,37 @@ class TextToSQLWorkflow2(TextToSQLWorkflow1):
         return TableRetrieveEvent(
             table_context_str=table_context_str, query=ev.query
         )
+
+
+# Create Basic Advanced Workflow
+def create_advanced_1_workflow(sql_database: SQLDatabase, obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=None, verbose=False):
+    workflow = TextToSQLWorkflow1(
+        sql_database=sql_database,
+        obj_retriever=obj_retriever,
+        text2sql_prompt=text2sql_prompt,
+        sql_retriever=sql_retriever,
+        response_synthesis_prompt=response_synthesis_prompt,
+        llm=llm,
+        verbose=verbose,
+        timeout=timeout,
+    )
+
+    return workflow
+
+
+def create_advanced_2_workflow(sql_database: SQLDatabase, vector_index_dict: Dict[str, VectorStoreIndex], obj_retriever, text2sql_prompt, sql_retriever, response_synthesis_prompt, llm, timeout=None, verbose=False):
+    workflow = TextToSQLWorkflow2(
+        sql_database=sql_database,
+        vector_index_dict=vector_index_dict,
+        obj_retriever=obj_retriever,
+        text2sql_prompt=text2sql_prompt,
+        sql_retriever=sql_retriever,
+        response_synthesis_prompt=response_synthesis_prompt,
+        llm=llm,
+        timeout=timeout,
+        verbose=verbose,
+    )
+    return workflow
 
 # from llama_index.utils.workflow import draw_all_possible_flows
 
