@@ -4,6 +4,7 @@
 
 We designed and implemented an agent that supports clients via chat or other protocol like REST API by utilizing Text-to-SQL translations to answer questions. 
 The agent interacts with clients in natural language by converting text to SQL, executing SQL queries, then translating query results to text. 
+
 The agent is designed to operate on arbitrary set of the structured data sources (tables) by resolving all relationships and translations at runtime.
 The chat and API interface are not part of the agent, rather the agent can fit into layered application architecture based on the requirements and use cases.
 
@@ -147,9 +148,12 @@ Of course, the system tested so far can still be improved in various ways:
 
 Current evaluation primarily addressed problems related to the overall agent correctness.
 Next, we will focus on more metrics from RAGChecker that measure system generator and system retriever scores.
+
 The natural evolution of the eval will include adding evaluations using agent traces to monitor its correctness and efficiency.
+
 Also recommended to expand the set of evaluation metrics to track system performance (e.g. execution time, time to first token, etc.), system guardrails, bias, certain business specific elements.
-In fact, using generator metrics would have been helpful in identifying the problem with the agent version 1.1 using LLM to compensate for the lack of retrieved information.
+
+In fact, using RAGChecker generator metrics would have been helpful in identifying the problem with the agent version 1.1 using LLM to compensate for the lack of retrieved information.
 
 ## Regressions
 
@@ -166,8 +170,11 @@ See [CLI_USAGE.md](CLI_USAGE.md) on how to run evaluations using CLI interface.
 ## Great Tool
 
 Solid evaluation tool offers both a toolset and process for continous, intuitive, efficient monitoring, troubleshooting and improving of AI applications from development to production environment. 
+
 It needs to be simple enough just to work, flexible enough to work with wide variety of AI applications, customizable enough to work with various bisiness requirements, and powerfull enough to enhance AI stack.
+
 The field of AI evaluation is still very young, with many technologies either immature, or legacy from the times before LLMs. 
+
 Agentic AI brings special challenges because it is new, granular, and diverse. Capturing common notes and unifying tones among agentic applications will be crtical to succeed for any evaluation platform.
 
 
@@ -178,4 +185,4 @@ Agentic AI brings special challenges because it is new, granular, and diverse. C
  * [LlamaIndex Text-to-SQL Guide](https://docs.llamaindex.ai/en/stable/examples/index_structs/struct_indices/SQLIndexDemo/)
  * [Structured Data Extraction in LlamaIndex](https://docs.llamaindex.ai/en/stable/examples/structured_outputs/structured_outputs/)
  * [RAGChecker Framework](https://github.com/amazon-science/RAGChecker)
- * 
+ * [How RAGChecker works: RefChecker](https://github.com/amazon-science/RefChecker/tree/main?tab=readme-ov-file#choose-models-for-the-extractor-and-checker)
