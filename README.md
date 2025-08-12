@@ -3,9 +3,13 @@
 ## Overview
 
 We implemented an agent to interact with structured data as a text-to-SQL LlamaIndex workflow over any SQL databases.
-The agent clients can interact via chat or other protocol like REST API to use the agent for interacting with their data sources in natural language (the chat or API interface are not part of the system, rather the agent fits into any layered application architecture based on the requirements and use cases). 
+The agent clients can interact via chat or other protocol like REST API to use the agent for querying data sources in natural language (the chat or API interface are not part of the system). The agent can fit into a layered application architecture or a network of agents, based on the requirements and use cases. 
 
-The agent determines which schema to use, converts natural language to SQL queries, executes SQL queries, and then translates results to a text response. The agent by design operates on arbitrary structured data (database tables) by resolving schema and relationships at runtime.
+The agent by design operates on arbitrary structured data (database tables) by resolving schema and relationships at runtime:
+ - determines which schema to use
+ - converts natural language to SQL query
+ - executes SQL query
+ - generates text response from the query results.
 
 Note: any text-to-SQL applications are security risks which should be addressed via additional guardrails, user permissions and restricted roles, read-only access, sandboxing, etc.
 
@@ -17,7 +21,7 @@ Note: any text-to-SQL applications are security risks which should be addressed 
  * Pydantic for structured LLM output
  * RAGChecker for comprehensive evaluation of RAG pipeline with standard metrics across all components of RAG (overall, retrieval, generation)
  * LLM as a judge (JLLM) for custom evaluation (not a package)
- * click for CLI interface
+ * click package for CLI interface
 
 
 ## Data
