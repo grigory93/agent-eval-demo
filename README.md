@@ -163,6 +163,15 @@ We also suggest continually curate and expand evaluation dataset based on new an
 See [CLI_USAGE.md](CLI_USAGE.md) on how to run evaluations using CLI interface.
 
 
+## Great Tool
+
+Solid evaluation tool offers both a toolset and process for continous, intuitive, efficient monitoring, troubleshooting and improving of AI applications from development to production environment. 
+It needs to be simple enough just to work, flexible enough to work with wide variety of AI applications, customizable enough to work with various bisiness requirements, and powerfull enough to enhance AI stack.
+The field of AI evaluation is still very young, with many technologies either immature, or legacy from the times before LLMs. 
+Agentic AI brings special challenges because it is new, granular, and diverse. Capturing common notes and unifying tones among agentic applications will be crtical to succeed for any evaluation platform.
+
+
+
 ## References
 
  * [LlamaIndex Agent Workflow](https://www.llamaindex.ai/blog/introducing-agentworkflow-a-powerful-system-for-building-ai-agent-systems)
