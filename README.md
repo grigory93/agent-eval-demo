@@ -104,7 +104,7 @@ but human evaluation of the answers showed that the 2d question was answered cor
 
 The agent took upon itself to expand its knowledge beyond the data sources (tables) and answered using innate knowledge of the LLM it calls.
 
-To reduce human in the loop element during evaluation we introduced custom LLM-as-a-judge (JLLM) evaluation step explicitly checks agent answers for the presence of the claim about lack of information. This evaluation simply returns `True` (bad: if such claim is found) or `False` (good: no such claim found in the response) - see `jllm_eval.py`
+To reduce human in the loop element during evaluation we introduced custom LLM-as-a-judge (JLLM) evaluation step explicitly checks agent answers for the presence of the claim about lack of information. This evaluation simply returns `True` (bad: if such claim is found) or `False` (good: no such claim found in the response) - see [`jllm_eval.py`](jllm_eval.py)
 
 Thus, JLLM evaluation for version 1.1 scored 1 sample `True`.
 
@@ -127,7 +127,7 @@ The problem is that if the user asks a query for "The Notorious BIG" but the art
 
 We can alleviate this problem by fetching a small number of example rows per table. A naive option would be to just take the first k rows. Instead, we embed, index, and retrieve k relevant rows given the user query to give the text-to-SQL LLM the most contextually relevant information for SQL generation.
 
-This change introduces newer agent with improved workflow that expands schema retrieval (table context) with row retrieval - see changes to the step `retrieve_tables` in the workflow definition in `class TextToSQLWorkflow2` inside `text_to_sql_workflows.py`
+This change introduces newer agent with improved workflow that expands schema retrieval (table context) with row retrieval - see changes to the step `retrieve_tables` in the workflow definition in [`class TextToSQLWorkflow2`](https://github.com/grigory93/agent-eval-demo/blob/fe82db928f71dc274aec57e7e5c72a61b3dab108/text_to_sql_workflows.py#L161) inside [`text_to_sql_workflows.py`](text_to_sql_workflows.py)
 
 Evaluation of this workflow yields perfect scores from both RAGChecker and JLLM.
 
