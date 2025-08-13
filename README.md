@@ -131,6 +131,9 @@ This change introduces newer agent with improved workflow that expands schema re
 
 Evaluation of this workflow yields perfect scores from both RAGChecker and JLLM.
 
+The consolidated evaluation scores for all versions of workflows:
+![bar chart](img/workflow_eval_trends_facets.png)
+
 ## Next Steps
 
 Below we discuss improvements, developments, and options for further development of both the agent and the evaluation process.
