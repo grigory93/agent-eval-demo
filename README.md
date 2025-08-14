@@ -136,12 +136,13 @@ The consolidated evaluation scores for all versions of workflows:
 
 ## Next Steps
 
-Below we discuss improvements, developments, and options for further development of both the agent and the evaluation process.
+Below we discuss how further develop and improve both the agent and the evaluation.
 
-### System
+### Agent
 
-Of course, the system tested so far can still be improved in various ways:
+Of course, the agentic system can be improved in many ways:
  * support for multi-table joins and selects
+ * add vertical (domain) specialization when selecting schemas
  * augmenting text-to-SQL RAG with vector store, Graph RAG, internet search, file search, custom tools and other hybrid approaches
  * including guardrails and custom validations in the pipeline
  * improving backend engine
@@ -150,16 +151,17 @@ Of course, the system tested so far can still be improved in various ways:
 
 ### Evaluation
 
-Current evaluation primarily addressed problems related to the overall agent correctness.
-Next, we will focus on more metrics from RAGChecker that measure system generator and system retriever scores.
+Current evaluation primarily addressed overall agent correctness.
 
-The natural evolution of the eval will include adding evaluations using agent traces to monitor its efficiency and the correctness of its elements (e.g. each step of workflow).
+Next, we will focus on more granular RAGChcker metrics: generator and retriever.
+In fact, using RAGChecker generator metrics would have discovered the problem with the agent version 1.1: observe the drop in generator faithfulness score, which indicates that the LLM response was not fully based on the context provided (if you remember we implemented JLLM to measure this problem, but our judge prompt was specialized to identify specific type of the problem only - RAGChecker score provides a universal metric).
+
+The natural evolution of the eval will include adding evaluations using agent traces to monitor its efficiency and optimal execution, as well as correctness of its elements (e.g. each step of workflow).
 
 Also recommended to expand the set of evaluation metrics to track system performance (e.g. execution time, time to first token, etc.), system guardrails, bias, certain business specific elements.
 
-In fact, using RAGChecker generator metrics would have been helpful in identifying the problem with the agent version 1.1 using LLM to compensate for the lack of retrieved information.
 
-Finally, evaluaiton of risks associated with the text-to-SQL translations presents another massive future work.
+Finally, evaluaiton of risks associated with the text-to-SQL translations is another important area for business stakeholders.
 
 
 ## Regressions
